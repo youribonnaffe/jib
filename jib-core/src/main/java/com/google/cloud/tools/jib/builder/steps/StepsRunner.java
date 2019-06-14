@@ -17,6 +17,7 @@
 package com.google.cloud.tools.jib.builder.steps;
 
 import com.google.cloud.tools.jib.api.Credential;
+import com.google.cloud.tools.jib.api.RegistryException;
 import com.google.cloud.tools.jib.blob.BlobDescriptor;
 import com.google.cloud.tools.jib.builder.ProgressEventDispatcher;
 import com.google.cloud.tools.jib.builder.steps.PullBaseImageStep.ImageAndAuthorization;
@@ -29,8 +30,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,19 +57,20 @@ public class StepsRunner {
   /** Holds the individual step results. */
   private static class StepResults {
 
-    private static <E> Future<E> failedFuture() {
+    private static <E> ListenableFuture<E> failedFuture() {
       return Futures.immediateFailedFuture(
           new IllegalStateException("invalid usage; required step not configured"));
     }
 
     private Future<ImageAndAuthorization> baseImageAndAuth = failedFuture();
-    private Future<List<Future<CachedLayerAndName>>> baseImageLayers = failedFuture();
-    @Nullable private List<Future<CachedLayerAndName>> applicationLayers;
+    private Future<List<ListenableFuture<CachedLayerAndName>>> baseImageLayers = failedFuture();
+    @Nullable private List<ListenableFuture<CachedLayerAndName>> applicationLayers;
     private Future<Image> builtImage = failedFuture();
+
     private Future<Credential> targetRegistryCredentials = failedFuture();
-    private Future<Authorization> pushAuthorization = failedFuture();
-    private Future<List<Future<BlobDescriptor>>> baseImageLayerPushResults = failedFuture();
-    private Future<List<Future<BlobDescriptor>>> applicationLayerPushResults = failedFuture();
+    private ListenableFuture<Authorization> pushAuthorization = failedFuture();
+    private Future<List<Future<BlobDescriptor>>> baseImageLayerPushResults;
+    @Nullable private List<Future<BlobDescriptor>> applicationLayerPushResults;
     private Future<BlobDescriptor> containerConfigurationPushResult = failedFuture();
     private Future<BuildResult> buildResult = failedFuture();
   }
@@ -86,7 +90,7 @@ public class StepsRunner {
     return new StepsRunner(MoreExecutors.listeningDecorator(executorService), buildConfiguration);
   }
 
-  private static <E> List<E> realizeFutures(List<Future<E>> futures)
+  private static <E> List<E> realizeFutures(List<? extends Future<E>> futures)
       throws InterruptedException, ExecutionException {
     List<E> values = new ArrayList<>();
     for (Future<E> future : futures) {
@@ -97,7 +101,7 @@ public class StepsRunner {
 
   private final StepResults results = new StepResults();
 
-  private final ExecutorService executorService;
+  private final ListeningExecutorService executorService;
   private final BuildConfiguration buildConfiguration;
 
   // We save steps to run by wrapping each step into a Runnable, only because of the unfortunate
@@ -217,18 +221,6 @@ public class StepsRunner {
                         results.baseImageAndAuth.get())));
   }
 
-  private void pushBaseImageLayers() {
-    results.baseImageLayerPushResults =
-        executorService.submit(
-            () ->
-                scheduleCallables(
-                    PushLayerStep.makeList(
-                        buildConfiguration,
-                        childProgressDispatcherFactorySupplier.get(),
-                        results.pushAuthorization.get(),
-                        results.baseImageLayers.get())));
-  }
-
   private void buildAndCacheApplicationLayers() {
     results.applicationLayers =
         scheduleCallables(
@@ -261,16 +253,47 @@ public class StepsRunner {
                     .call());
   }
 
+  private void pushBaseImageLayers() {
+    results.baseImageLayerPushResults =
+        executorService.submit(() -> pushLayers(results.baseImageLayers.get()));
+  }
+
   private void pushApplicationLayers() {
     results.applicationLayerPushResults =
-        executorService.submit(
-            () ->
-                scheduleCallables(
-                    PushLayerStep.makeList(
-                        buildConfiguration,
-                        childProgressDispatcherFactorySupplier.get(),
-                        results.pushAuthorization.get(),
-                        Verify.verifyNotNull(results.applicationLayers))));
+        pushLayers(Verify.verifyNotNull(results.applicationLayers));
+  }
+
+  // Special optimization for pushing layers: uses whenAllSucceed to avoid idle threads.
+  private List<Future<BlobDescriptor>> pushLayers(
+      List<ListenableFuture<CachedLayerAndName>> layers) {
+    String stepDescription = "preparing layer pushers";
+    try (ProgressEventDispatcher progressDispatcher =
+        childProgressDispatcherFactorySupplier.get().create(stepDescription, layers.size())) {
+
+      return layers
+          .stream()
+          .map(
+              layer -> {
+                ProgressEventDispatcher.Factory pusherProgressDispatcherFactory =
+                    progressDispatcher.newChildProducer();
+                return Futures.whenAllSucceed(layer, results.pushAuthorization)
+                    .call(
+                        () -> runPushLayerStep(layer, pusherProgressDispatcherFactory),
+                        executorService);
+              })
+          .collect(Collectors.toList());
+    }
+  }
+
+  private BlobDescriptor runPushLayerStep(
+      Future<CachedLayerAndName> layer, ProgressEventDispatcher.Factory progressDispatcherFactory)
+      throws InterruptedException, ExecutionException, IOException, RegistryException {
+    return new PushLayerStep(
+            buildConfiguration,
+            progressDispatcherFactory,
+            results.pushAuthorization.get(),
+            layer.get().getCachedLayer())
+        .call();
   }
 
   private void pushImages() {
@@ -278,9 +301,9 @@ public class StepsRunner {
         executorService.submit(
             () -> {
               realizeFutures(results.baseImageLayerPushResults.get());
-              realizeFutures(results.applicationLayerPushResults.get());
+              realizeFutures(Verify.verifyNotNull(results.applicationLayerPushResults));
 
-              List<Future<BuildResult>> tagPushResults =
+              List<ListenableFuture<BuildResult>> tagPushResults =
                   scheduleCallables(
                       PushImageStep.makeList(
                           buildConfiguration,
@@ -318,7 +341,8 @@ public class StepsRunner {
                     .call());
   }
 
-  private <E> List<Future<E>> scheduleCallables(ImmutableList<? extends Callable<E>> callables) {
+  private <E> List<ListenableFuture<E>> scheduleCallables(
+      ImmutableList<? extends Callable<E>> callables) {
     return callables.stream().map(executorService::submit).collect(Collectors.toList());
   }
 }
