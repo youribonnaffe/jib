@@ -69,7 +69,7 @@ public class StepsRunner {
 
     private Future<Credential> targetRegistryCredentials = failedFuture();
     private ListenableFuture<Authorization> pushAuthorization = failedFuture();
-    private Future<List<Future<BlobDescriptor>>> baseImageLayerPushResults;
+    private Future<List<Future<BlobDescriptor>>> baseImageLayerPushResults = failedFuture();
     @Nullable private List<Future<BlobDescriptor>> applicationLayerPushResults;
     private Future<BlobDescriptor> containerConfigurationPushResult = failedFuture();
     private Future<BuildResult> buildResult = failedFuture();
