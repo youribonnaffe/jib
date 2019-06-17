@@ -305,7 +305,7 @@ public class StepsRunner {
 
               List<ListenableFuture<BuildResult>> tagPushResults =
                   scheduleCallables(
-                      PushImageStep.makeList(
+                      PushManifestStep.makeList(
                           buildConfiguration,
                           childProgressDispatcherFactorySupplier.get(),
                           results.pushAuthorization.get(),
