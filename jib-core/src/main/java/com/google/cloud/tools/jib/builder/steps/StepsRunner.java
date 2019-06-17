@@ -303,7 +303,7 @@ public class StepsRunner {
               realizeFutures(results.baseImageLayerPushResults.get());
               realizeFutures(Verify.verifyNotNull(results.applicationLayerPushResults));
 
-              List<ListenableFuture<BuildResult>> tagPushResults =
+              List<ListenableFuture<BuildResult>> pushResults =
                   scheduleCallables(
                       PushManifestStep.makeList(
                           buildConfiguration,
@@ -311,9 +311,9 @@ public class StepsRunner {
                           results.pushAuthorization.get(),
                           results.containerConfigurationPushResult.get(),
                           results.builtImage.get()));
-              realizeFutures(tagPushResults);
-              // Image (tag, or actually manifest) pushers return the same BuildResult.
-              return tagPushResults.get(0).get();
+              realizeFutures(pushResults);
+              // Manifest pushers return the same BuildResult.
+              return pushResults.get(0).get();
             });
   }
 
