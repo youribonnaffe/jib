@@ -17,7 +17,6 @@
 package com.google.cloud.tools.jib.builder.steps;
 
 import com.google.cloud.tools.jib.api.Credential;
-import com.google.cloud.tools.jib.api.RegistryException;
 import com.google.cloud.tools.jib.blob.BlobDescriptor;
 import com.google.cloud.tools.jib.builder.ProgressEventDispatcher;
 import com.google.cloud.tools.jib.builder.steps.PullBaseImageStep.ImageAndAuthorization;
@@ -33,7 +32,6 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -291,34 +289,29 @@ public class StepsRunner {
   private List<Future<BlobDescriptor>> pushLayers(
       List<ListenableFuture<CachedLayerAndName>> layers,
       ProgressEventDispatcher.Factory childProgressDispatcherFactory) {
-    String stepDescription = "preparing layer pushers";
+    List<Future<BlobDescriptor>> pushResults = new ArrayList<>();
+
     try (ProgressEventDispatcher progressDispatcher =
-        childProgressDispatcherFactory.create(stepDescription, layers.size())) {
+        childProgressDispatcherFactory.create("preparing layer pushers", layers.size())) {
 
-      return layers
-          .stream()
-          .map(
-              layer -> {
-                ProgressEventDispatcher.Factory pusherProgressDispatcherFactory =
-                    progressDispatcher.newChildProducer();
-                return Futures.whenAllSucceed(layer, results.pushAuthorization)
-                    .call(
-                        () -> runPushLayerStep(layer, pusherProgressDispatcherFactory),
-                        executorService);
-              })
-          .collect(Collectors.toList());
+      for (ListenableFuture<CachedLayerAndName> layer : layers) {
+        ProgressEventDispatcher.Factory pusherProgressDispatcherFactory =
+            progressDispatcher.newChildProducer();
+
+        pushResults.add(
+            Futures.whenAllSucceed(layer, results.pushAuthorization)
+                .call(
+                    () ->
+                        new PushLayerStep(
+                                buildConfiguration,
+                                pusherProgressDispatcherFactory,
+                                results.pushAuthorization.get(),
+                                layer.get().getCachedLayer())
+                            .call(),
+                    executorService));
+      }
     }
-  }
-
-  private BlobDescriptor runPushLayerStep(
-      Future<CachedLayerAndName> layer, ProgressEventDispatcher.Factory progressDispatcherFactory)
-      throws InterruptedException, ExecutionException, IOException, RegistryException {
-    return new PushLayerStep(
-            buildConfiguration,
-            progressDispatcherFactory,
-            results.pushAuthorization.get(),
-            layer.get().getCachedLayer())
-        .call();
+    return pushResults;
   }
 
   private void pushImages() {
