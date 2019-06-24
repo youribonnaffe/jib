@@ -24,19 +24,20 @@ import com.google.cloud.tools.jib.configuration.BuildConfiguration;
 import com.google.cloud.tools.jib.http.Authorization;
 import java.io.IOException;
 import java.util.concurrent.Callable;
+import javax.annotation.Nullable;
 
 class PushLayerStep implements Callable<BlobDescriptor> {
 
   private final BuildConfiguration buildConfiguration;
   private final ProgressEventDispatcher.Factory progressEventDispatcherFactory;
 
-  private final Authorization pushAuthorization;
+  @Nullable private final Authorization pushAuthorization;
   private final CachedLayer cachedLayer;
 
   PushLayerStep(
       BuildConfiguration buildConfiguration,
       ProgressEventDispatcher.Factory progressEventDispatcherFactory,
-      Authorization pushAuthorization,
+      @Nullable Authorization pushAuthorization,
       CachedLayer cachedLayer) {
     this.buildConfiguration = buildConfiguration;
     this.progressEventDispatcherFactory = progressEventDispatcherFactory;

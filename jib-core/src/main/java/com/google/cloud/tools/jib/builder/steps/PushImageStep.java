@@ -34,6 +34,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import javax.annotation.Nullable;
 
 /**
  * Pushes a manifest for a tag. Returns the manifest digest ("image digest") and the container
@@ -81,10 +82,19 @@ class PushImageStep implements Callable<BuildResult> {
     }
   }
 
+  private final BuildConfiguration buildConfiguration;
+  private final ProgressEventDispatcher.Factory progressEventDispatcherFactory;
+
+  private final BuildableManifestTemplate manifestTemplate;
+  @Nullable private final Authorization pushAuthorization;
+  private final String tag;
+  private final DescriptorDigest imageDigest;
+  private final DescriptorDigest imageId;
+
   PushImageStep(
       BuildConfiguration buildConfiguration,
       ProgressEventDispatcher.Factory progressEventDispatcherFactory,
-      Authorization pushAuthorization,
+      @Nullable Authorization pushAuthorization,
       BuildableManifestTemplate manifestTemplate,
       String tag,
       DescriptorDigest imageDigest,
@@ -97,15 +107,6 @@ class PushImageStep implements Callable<BuildResult> {
     this.imageDigest = imageDigest;
     this.imageId = imageId;
   }
-
-  private final BuildConfiguration buildConfiguration;
-  private final ProgressEventDispatcher.Factory progressEventDispatcherFactory;
-
-  private final BuildableManifestTemplate manifestTemplate;
-  private final Authorization pushAuthorization;
-  private final String tag;
-  private final DescriptorDigest imageDigest;
-  private final DescriptorDigest imageId;
 
   @Override
   public BuildResult call() throws IOException, RegistryException {

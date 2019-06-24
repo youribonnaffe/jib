@@ -35,6 +35,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -64,8 +65,8 @@ public class StepsRunner {
     @Nullable private List<ListenableFuture<CachedLayerAndName>> applicationLayers;
     private Future<Image> builtImage = failedFuture();
 
-    private Future<Credential> targetRegistryCredentials = failedFuture();
-    private ListenableFuture<Authorization> pushAuthorization = failedFuture();
+    private Future<Optional<Credential>> targetRegistryCredentials = failedFuture();
+    private ListenableFuture<Optional<Authorization>> pushAuthorization = failedFuture();
     private Future<List<Future<BlobDescriptor>>> baseImageLayerPushResults = failedFuture();
     @Nullable private List<Future<BlobDescriptor>> applicationLayerPushResults;
     private Future<BlobDescriptor> containerConfigurationPushResult = failedFuture();
@@ -200,7 +201,7 @@ public class StepsRunner {
                 new AuthenticatePushStep(
                         buildConfiguration,
                         childProgressDispatcherFactory,
-                        results.targetRegistryCredentials.get())
+                        results.targetRegistryCredentials.get().orElse(null))
                     .call());
   }
 
@@ -263,7 +264,7 @@ public class StepsRunner {
                 new PushContainerConfigurationStep(
                         buildConfiguration,
                         childProgressDispatcherFactory,
-                        results.pushAuthorization.get(),
+                        results.pushAuthorization.get().orElse(null),
                         results.builtImage.get())
                     .call());
   }
@@ -305,7 +306,7 @@ public class StepsRunner {
                         new PushLayerStep(
                                 buildConfiguration,
                                 pusherProgressDispatcherFactory,
-                                results.pushAuthorization.get(),
+                                results.pushAuthorization.get().orElse(null),
                                 layer.get().getCachedLayer())
                             .call(),
                     executorService));
@@ -329,7 +330,7 @@ public class StepsRunner {
                       PushImageStep.makeList(
                           buildConfiguration,
                           childProgressDispatcherFactory,
-                          results.pushAuthorization.get(),
+                          results.pushAuthorization.get().orElse(null),
                           results.containerConfigurationPushResult.get(),
                           results.builtImage.get()));
               realizeFutures(manifestPushResults);
