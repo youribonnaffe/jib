@@ -146,4 +146,29 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
       }
     }
   }
+
+  @Test
+  public void testVerbatimRedirectionUrls()
+      throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
+    String url1 = "?_auth_=exp=1572285389~hmac=f0a387f0";
+    String url2 = "?Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614";
+
+    String redir302url1 = "HTTP/1.1 302 Found\nLocation: " + url1 + "\nContent-Length: 0\n\n";
+    String redir302url2 = "HTTP/1.1 302 Found\nLocation: " + url2 + "\nContent-Length: 0\n\n";
+    String ok200 = "HTTP/1.1 200 OK\nContent-Length:12\n\nHello World!";
+
+    Connection httpClient = new Connection(true /*insecure*/, false, logger);
+    try (TestWebServer server =
+        new TestWebServer(false, Arrays.asList(redir302url1, redir302url2, ok200), 1)) {
+      httpClient.get(new URL(server.getEndpoint()), request);
+
+      Assert.assertThat(
+          server.getInputRead(),
+          CoreMatchers.containsString("GET /?_auth_=exp=1572285389~hmac=f0a387f0 "));
+      Assert.assertThat(
+          server.getInputRead(),
+          CoreMatchers.containsString(
+              "GET /?Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614 "));
+    }
+  }
 }
