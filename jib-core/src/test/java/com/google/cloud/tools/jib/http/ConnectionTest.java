@@ -144,6 +144,8 @@ public class ConnectionTest { // TODO: rename to TlsFailoverHttpClient
 
     Mockito.when(mockHttpRequest.setHeaders(httpHeadersCaptor.capture()))
         .thenReturn(mockHttpRequest);
+    Mockito.when(mockHttpRequest.setUseRawRedirectUrls(Mockito.anyBoolean()))
+        .thenReturn(mockHttpRequest);
     Mockito.when(mockHttpRequest.setConnectTimeout(Mockito.anyInt())).thenReturn(mockHttpRequest);
     Mockito.when(mockHttpRequest.setReadTimeout(Mockito.anyInt())).thenReturn(mockHttpRequest);
     Mockito.when(mockHttpRequest.execute()).thenReturn(mockHttpResponse);
