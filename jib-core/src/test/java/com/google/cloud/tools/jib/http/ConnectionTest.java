@@ -124,6 +124,8 @@ public class ConnectionTest {
 
     Mockito.when(mockHttpRequest.setHeaders(Mockito.any(HttpHeaders.class)))
         .thenReturn(mockHttpRequest);
+    Mockito.when(mockHttpRequest.setUseRawRedirectUrls(Mockito.anyBoolean()))
+        .thenReturn(mockHttpRequest);
     Mockito.when(mockHttpRequest.setConnectTimeout(Mockito.anyInt())).thenReturn(mockHttpRequest);
     Mockito.when(mockHttpRequest.setReadTimeout(Mockito.anyInt())).thenReturn(mockHttpRequest);
     mockHttpResponse = Mockito.mock(HttpResponse.class);
