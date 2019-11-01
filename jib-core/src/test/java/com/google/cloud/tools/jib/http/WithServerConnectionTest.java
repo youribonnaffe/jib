@@ -24,6 +24,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.Consumer;
 import javax.net.ssl.SSLException;
 import org.hamcrest.CoreMatchers;
@@ -150,25 +151,39 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
   @Test
   public void testVerbatimRedirectionUrls()
       throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
-    String url1 = "?_auth_=exp=1572285389~hmac=f0a387f0";
-    String url2 = "?Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614";
+    String url1 = "?id=301&_auth_=exp=1572285389~hmac=f0a387f0";
+    String url2 = "?id=302&Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614";
+    String url3 = "?id=303&_auth_=exp=1572285389~hmac=f0a387f0";
+    String url4 = "?id=307&Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614";
 
-    String redir302url1 = "HTTP/1.1 302 Found\nLocation: " + url1 + "\nContent-Length: 0\n\n";
-    String redir302url2 = "HTTP/1.1 302 Found\nLocation: " + url2 + "\nContent-Length: 0\n\n";
+    String redirect301 =
+        "HTTP/1.1 301 Moved Permanently\nLocation: " + url1 + "\nContent-Length: 0\n\n";
+    String redirect302 = "HTTP/1.1 302 Found\nLocation: " + url2 + "\nContent-Length: 0\n\n";
+    String redirect303 = "HTTP/1.1 303 See Other\nLocation: " + url3 + "\nContent-Length: 0\n\n";
+    String redirect307 =
+        "HTTP/1.1 307 Temporary Redirect\nLocation: " + url4 + "\nContent-Length: 0\n\n";
     String ok200 = "HTTP/1.1 200 OK\nContent-Length:12\n\nHello World!";
+    List<String> responses =
+        Arrays.asList(redirect301, redirect302, redirect303, redirect307, ok200);
 
     Connection httpClient = new Connection(true /*insecure*/, false, logger);
-    try (TestWebServer server =
-        new TestWebServer(false, Arrays.asList(redir302url1, redir302url2, ok200), 1)) {
+    try (TestWebServer server = new TestWebServer(false, responses, 1)) {
       httpClient.get(new URL(server.getEndpoint()), request);
 
       Assert.assertThat(
           server.getInputRead(),
-          CoreMatchers.containsString("GET /?_auth_=exp=1572285389~hmac=f0a387f0 "));
+          CoreMatchers.containsString("GET /?id=301&_auth_=exp=1572285389~hmac=f0a387f0 "));
       Assert.assertThat(
           server.getInputRead(),
           CoreMatchers.containsString(
-              "GET /?Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614 "));
+              "GET /?id=302&Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614 "));
+      Assert.assertThat(
+          server.getInputRead(),
+          CoreMatchers.containsString("GET /?id=303&_auth_=exp=1572285389~hmac=f0a387f0 "));
+      Assert.assertThat(
+          server.getInputRead(),
+          CoreMatchers.containsString(
+              "GET /?id=307&Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614 "));
     }
   }
 }
