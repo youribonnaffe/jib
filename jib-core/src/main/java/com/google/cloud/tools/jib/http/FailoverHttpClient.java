@@ -262,7 +262,8 @@ public class FailoverHttpClient {
         httpTransport
             .createRequestFactory()
             .buildRequest(httpMethod, new GenericUrl(url), request.getHttpContent())
-            .setHeaders(requestHeaders);
+            .setHeaders(requestHeaders)
+            .setUseRawRedirectUrls(true);
     if (request.getHttpTimeout() != null) {
       httpRequest.setConnectTimeout(request.getHttpTimeout());
       httpRequest.setReadTimeout(request.getHttpTimeout());
