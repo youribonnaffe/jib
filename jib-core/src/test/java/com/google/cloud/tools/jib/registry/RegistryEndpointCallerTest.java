@@ -26,7 +26,7 @@ import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.cloud.tools.jib.global.JibSystemProperties;
 import com.google.cloud.tools.jib.http.Authorization;
 import com.google.cloud.tools.jib.http.BlobHttpContent;
-import com.google.cloud.tools.jib.http.Connection;
+import com.google.cloud.tools.jib.http.FailoverHttpClient;
 import com.google.cloud.tools.jib.http.Request;
 import com.google.cloud.tools.jib.http.RequestWrapper;
 import com.google.cloud.tools.jib.http.Response;
@@ -96,6 +96,12 @@ public class RegistryEndpointCallerTest {
     public String getActionDescription() {
       return "actionDescription";
     }
+
+    @Override
+    public String handleHttpResponseException(ResponseException responseException)
+        throws ResponseException, RegistryErrorException {
+      throw responseException;
+    }
   }
 
   private static ResponseException mockResponseException(
@@ -109,7 +115,7 @@ public class RegistryEndpointCallerTest {
   @Rule public final RestoreSystemProperties systemPropertyRestorer = new RestoreSystemProperties();
 
   @Mock private EventHandlers mockEventHandlers;
-  @Mock private Connection mockHttpClient;
+  @Mock private FailoverHttpClient mockHttpClient;
   @Mock private Response mockResponse;
 
   private RegistryEndpointCaller<String> endpointCaller;
@@ -236,18 +242,22 @@ public class RegistryEndpointCallerTest {
   }
 
   @Test
-  public void testCall_temporaryRedirect() throws IOException, RegistryException {
-    verifyRetriesWithNewLocation(HttpStatusCodes.STATUS_CODE_TEMPORARY_REDIRECT);
-  }
-
-  @Test
-  public void testCall_movedPermanently() throws IOException, RegistryException {
-    verifyRetriesWithNewLocation(HttpStatusCodes.STATUS_CODE_MOVED_PERMANENTLY);
-  }
-
-  @Test
   public void testCall_permanentRedirect() throws IOException, RegistryException {
-    verifyRetriesWithNewLocation(RegistryEndpointCaller.STATUS_CODE_PERMANENT_REDIRECT);
+    ResponseException redirectException =
+        mockResponseException(
+            RegistryEndpointCaller.STATUS_CODE_PERMANENT_REDIRECT,
+            new HttpHeaders().setLocation("https://newlocation"));
+
+    // Make httpClient.call() throw first, then succeed.
+    setUpRegistryResponse(redirectException);
+    Mockito.when(
+            mockHttpClient.call(
+                Mockito.eq("httpMethod"),
+                Mockito.eq(new URL("https://newlocation")),
+                Mockito.any()))
+        .thenReturn(mockResponse);
+
+    Assert.assertEquals("body", endpointCaller.call());
   }
 
   @Test
@@ -463,28 +473,6 @@ public class RegistryEndpointCallerTest {
           CoreMatchers.startsWith(
               "Tried to actionDescription but failed because: unknown error code: code (message)"));
     }
-  }
-
-  /**
-   * Verifies that a response with {@code httpStatusCode} retries the request with the {@code
-   * Location} header.
-   */
-  private void verifyRetriesWithNewLocation(int httpStatusCode)
-      throws IOException, RegistryException {
-    // Mocks a response for temporary redirect to a new location.
-    ResponseException redirectException =
-        mockResponseException(httpStatusCode, new HttpHeaders().setLocation("https://newlocation"));
-
-    // Make httpClient.call() throw first, then succeed.
-    setUpRegistryResponse(redirectException);
-    Mockito.when(
-            mockHttpClient.call(
-                Mockito.eq("httpMethod"),
-                Mockito.eq(new URL("https://newlocation")),
-                Mockito.any()))
-        .thenReturn(mockResponse);
-
-    Assert.assertEquals("body", endpointCaller.call());
   }
 
   private void setUpRegistryResponse(Exception exceptionToThrow)

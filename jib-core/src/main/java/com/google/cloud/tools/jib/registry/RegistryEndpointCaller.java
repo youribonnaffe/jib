@@ -24,7 +24,7 @@ import com.google.cloud.tools.jib.api.RegistryUnauthorizedException;
 import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.cloud.tools.jib.global.JibSystemProperties;
 import com.google.cloud.tools.jib.http.Authorization;
-import com.google.cloud.tools.jib.http.Connection;
+import com.google.cloud.tools.jib.http.FailoverHttpClient;
 import com.google.cloud.tools.jib.http.Request;
 import com.google.cloud.tools.jib.http.Response;
 import com.google.cloud.tools.jib.http.ResponseException;
@@ -74,7 +74,7 @@ class RegistryEndpointCaller<T> {
   private final RegistryEndpointProvider<T> registryEndpointProvider;
   @Nullable private final Authorization authorization;
   private final RegistryEndpointRequestProperties registryEndpointRequestProperties;
-  private final Connection httpClient;
+  private final FailoverHttpClient httpClient;
 
   /**
    * Constructs with parameters for making the request.
@@ -93,7 +93,7 @@ class RegistryEndpointCaller<T> {
       RegistryEndpointProvider<T> registryEndpointProvider,
       @Nullable Authorization authorization,
       RegistryEndpointRequestProperties registryEndpointRequestProperties,
-      Connection httpClient) {
+      FailoverHttpClient httpClient) {
     this.eventHandlers = eventHandlers;
     this.userAgent = userAgent;
     this.registryEndpointProvider = registryEndpointProvider;
@@ -167,6 +167,7 @@ class RegistryEndpointCaller<T> {
           // 301 (Moved Permanently), 302 (Found), 303 (See Other), and 307 (Temporary Redirect) are
           // automatically followed by Google HTTP Client (setFollowRedirects(true)), but 308 isn't.
           // https://github.com/googleapis/google-http-java-client/issues/873
+          // TODO: remove this when the bug is fixed.
         } else if (responseException.getStatusCode() == STATUS_CODE_PERMANENT_REDIRECT) {
           // 'Location' header can be relative or absolute.
           URL redirectLocation = new URL(url, responseException.getHeaders().getLocation());

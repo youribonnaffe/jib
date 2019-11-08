@@ -30,6 +30,8 @@ import java.io.IOException;
 import java.net.ConnectException;
 import java.net.URL;
 import java.security.GeneralSecurityException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLException;
@@ -67,7 +69,7 @@ import org.apache.http.impl.client.HttpClientBuilder;
  * This failover behavior is similar to how the Docker client works:
  * https://docs.docker.com/registry/insecure/#deploy-a-plain-http-registry
  */
-public class Connection { // TODO: rename to TlsFailoverHttpClient
+public class FailoverHttpClient {
 
   private static boolean isHttpsProtocol(URL url) {
     return "https".equals(url.getProtocol());
@@ -108,7 +110,10 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
   private final Supplier<HttpTransport> secureHttpTransportFactory;
   private final Supplier<HttpTransport> insecureHttpTransportFactory;
 
-  public Connection(
+  private final Deque<HttpTransport> transportsCreated = new ArrayDeque<>();
+  private final Deque<Response> responsesCreated = new ArrayDeque<>();
+
+  public FailoverHttpClient(
       boolean enableHttpAndInsecureFailover,
       boolean sendAuthorizationOverHttp,
       Consumer<LogEvent> logger) {
@@ -116,12 +121,12 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
         enableHttpAndInsecureFailover,
         sendAuthorizationOverHttp,
         logger,
-        Connection::getSecureHttpTransport,
-        Connection::getInsecureHttpTransport);
+        FailoverHttpClient::getSecureHttpTransport,
+        FailoverHttpClient::getInsecureHttpTransport);
   }
 
   @VisibleForTesting
-  Connection(
+  FailoverHttpClient(
       boolean enableHttpAndInsecureFailover,
       boolean sendAuthorizationOverHttp,
       Consumer<LogEvent> logger,
@@ -132,6 +137,30 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
     this.logger = logger;
     this.secureHttpTransportFactory = secureHttpTransportFactory;
     this.insecureHttpTransportFactory = insecureHttpTransportFactory;
+  }
+
+  /**
+   * Closes all connections and allocated resources, whether they are currently used or not.
+   *
+   * <p>If an I/O error occurs, shutdown attempts stop immediately, resulting in partial resource
+   * release up to that point. The method can be called again later to re-attempt releasing all
+   * resources.
+   *
+   * @throws IOException when I/O error shutting down resources
+   */
+  public void shutDown() throws IOException {
+    synchronized (transportsCreated) {
+      while (!transportsCreated.isEmpty()) {
+        transportsCreated.peekFirst().shutdown();
+        transportsCreated.removeFirst();
+      }
+    }
+    synchronized (responsesCreated) {
+      while (!responsesCreated.isEmpty()) {
+        responsesCreated.peekFirst().close();
+        responsesCreated.removeFirst();
+      }
+    }
   }
 
   /**
@@ -185,7 +214,7 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
     }
 
     try {
-      return call(httpMethod, url, request, secureHttpTransportFactory.get());
+      return call(httpMethod, url, request, getHttpTransport(true));
 
     } catch (SSLException ex) {
       if (!enableHttpAndInsecureFailover) {
@@ -194,11 +223,11 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
 
       try {
         logInsecureHttpsFailover(url);
-        return call(httpMethod, url, request, insecureHttpTransportFactory.get());
+        return call(httpMethod, url, request, getHttpTransport(false));
 
       } catch (SSLException ignored) { // This is usually when the server is plain-HTTP.
         logHttpFailover(url);
-        return call(httpMethod, toHttp(url), request, secureHttpTransportFactory.get());
+        return call(httpMethod, toHttp(url), request, getHttpTransport(true));
       }
 
     } catch (ConnectException ex) {
@@ -214,7 +243,7 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
       // port 443) and we could not connect to 443. It's worth trying port 80.
       if (enableHttpAndInsecureFailover && isHttpsProtocol(url) && url.getPort() == -1) {
         logHttpFailover(url);
-        return call(httpMethod, toHttp(url), request, secureHttpTransportFactory.get());
+        return call(httpMethod, toHttp(url), request, getHttpTransport(true));
       }
       throw ex;
     }
@@ -233,7 +262,6 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
         httpTransport
             .createRequestFactory()
             .buildRequest(httpMethod, new GenericUrl(url), request.getHttpContent())
-            .setUseRawRedirectUrls(true)
             .setHeaders(requestHeaders);
     if (request.getHttpTimeout() != null) {
       httpRequest.setConnectTimeout(request.getHttpTimeout());
@@ -241,10 +269,23 @@ public class Connection { // TODO: rename to TlsFailoverHttpClient
     }
 
     try {
-      return new Response(httpRequest.execute());
+      Response response = new Response(httpRequest.execute());
+      synchronized (responsesCreated) {
+        responsesCreated.addLast(response);
+      }
+      return response;
     } catch (HttpResponseException ex) {
       throw new ResponseException(ex, clearAuthorization);
     }
+  }
+
+  private HttpTransport getHttpTransport(boolean secureTransport) {
+    HttpTransport transport =
+        secureTransport ? secureHttpTransportFactory.get() : insecureHttpTransportFactory.get();
+    synchronized (transportsCreated) {
+      transportsCreated.addLast(transport);
+    }
+    return transport;
   }
 
   private void logHttpFailover(URL url) {

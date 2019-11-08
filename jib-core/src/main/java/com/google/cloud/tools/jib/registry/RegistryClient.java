@@ -28,7 +28,7 @@ import com.google.cloud.tools.jib.builder.TimerEventDispatcher;
 import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.cloud.tools.jib.global.JibSystemProperties;
 import com.google.cloud.tools.jib.http.Authorization;
-import com.google.cloud.tools.jib.http.Connection;
+import com.google.cloud.tools.jib.http.FailoverHttpClient;
 import com.google.cloud.tools.jib.http.Response;
 import com.google.cloud.tools.jib.image.json.BuildableManifestTemplate;
 import com.google.cloud.tools.jib.image.json.ManifestTemplate;
@@ -54,28 +54,18 @@ public class RegistryClient {
 
     private final EventHandlers eventHandlers;
     private final RegistryEndpointRequestProperties registryEndpointRequestProperties;
+    private final FailoverHttpClient httpClient;
 
-    private boolean allowInsecureRegistries = false;
     @Nullable private String userAgentSuffix;
     @Nullable private Authorization authorization;
 
     private Factory(
         EventHandlers eventHandlers,
-        RegistryEndpointRequestProperties registryEndpointRequestProperties) {
+        RegistryEndpointRequestProperties registryEndpointRequestProperties,
+        FailoverHttpClient httpClient) {
       this.eventHandlers = eventHandlers;
       this.registryEndpointRequestProperties = registryEndpointRequestProperties;
-    }
-
-    /**
-     * Sets whether or not to allow insecure registries (ignoring certificate validation failure or
-     * communicating over HTTP if all else fail).
-     *
-     * @param allowInsecureRegistries if {@code true}, insecure connections will be allowed
-     * @return this
-     */
-    public Factory setAllowInsecureRegistries(boolean allowInsecureRegistries) {
-      this.allowInsecureRegistries = allowInsecureRegistries;
-      return this;
+      this.httpClient = httpClient;
     }
 
     /**
@@ -110,8 +100,8 @@ public class RegistryClient {
           eventHandlers,
           authorization,
           registryEndpointRequestProperties,
-          allowInsecureRegistries,
-          makeUserAgent());
+          makeUserAgent(),
+          httpClient);
     }
 
     /**
@@ -146,17 +136,28 @@ public class RegistryClient {
    * @param eventHandlers the event handlers used for dispatching log events
    * @param serverUrl the server URL for the registry (for example, {@code gcr.io})
    * @param imageName the image/repository name (also known as, namespace)
+   * @param httpClient HTTP client
    * @return the new {@link Factory}
    */
-  public static Factory factory(EventHandlers eventHandlers, String serverUrl, String imageName) {
-    return new Factory(eventHandlers, new RegistryEndpointRequestProperties(serverUrl, imageName));
+  public static Factory factory(
+      EventHandlers eventHandlers,
+      String serverUrl,
+      String imageName,
+      FailoverHttpClient httpClient) {
+    return new Factory(
+        eventHandlers, new RegistryEndpointRequestProperties(serverUrl, imageName), httpClient);
   }
 
   public static Factory factory(
-      EventHandlers eventHandlers, String serverUrl, String imageName, String sourceImageName) {
+      EventHandlers eventHandlers,
+      String serverUrl,
+      String imageName,
+      String sourceImageName,
+      FailoverHttpClient httpClient) {
     return new Factory(
         eventHandlers,
-        new RegistryEndpointRequestProperties(serverUrl, imageName, sourceImageName));
+        new RegistryEndpointRequestProperties(serverUrl, imageName, sourceImageName),
+        httpClient);
   }
 
   /**
@@ -244,7 +245,7 @@ public class RegistryClient {
   @Nullable private final Authorization authorization;
   private final RegistryEndpointRequestProperties registryEndpointRequestProperties;
   private final String userAgent;
-  private final Connection httpClient;
+  private final FailoverHttpClient httpClient;
 
   /**
    * Instantiate with {@link #factory}.
@@ -252,24 +253,20 @@ public class RegistryClient {
    * @param eventHandlers the event handlers used for dispatching log events
    * @param authorization the {@link Authorization} to access the registry/repository
    * @param registryEndpointRequestProperties properties of registry endpoint requests
-   * @param allowInsecureRegistries if {@code true}, insecure connections will be allowed
    * @param userAgent {@code User-Agent} header to send with the request
+   * @param httpClient HTTP client
    */
   private RegistryClient(
       EventHandlers eventHandlers,
       @Nullable Authorization authorization,
       RegistryEndpointRequestProperties registryEndpointRequestProperties,
-      boolean allowInsecureRegistries,
-      String userAgent) {
+      String userAgent,
+      FailoverHttpClient httpClient) {
     this.eventHandlers = eventHandlers;
     this.authorization = authorization;
     this.registryEndpointRequestProperties = registryEndpointRequestProperties;
     this.userAgent = userAgent;
-    this.httpClient =
-        new Connection(
-            allowInsecureRegistries,
-            JibSystemProperties.sendCredentialsOverHttp(),
-            eventHandlers::dispatch);
+    this.httpClient = httpClient;
   }
 
   /**

@@ -37,9 +37,9 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
-/** Tests for {@link Connection} using an actual local server. */
+/** Tests for {@link FailoverHttpClient} using an actual local server. */
 @RunWith(MockitoJUnitRunner.class)
-public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailoverHttpClientTest
+public class WithServerFailoverHttpClientTest {
 
   @Rule public final RestoreSystemProperties systemPropertyRestorer = new RestoreSystemProperties();
 
@@ -50,7 +50,8 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
   @Test
   public void testGet()
       throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
-    Connection insecureHttpClient = new Connection(true /*insecure*/, false, logger);
+    FailoverHttpClient insecureHttpClient =
+        new FailoverHttpClient(true /*insecure*/, false, logger);
     try (TestWebServer server = new TestWebServer(false);
         Response response = insecureHttpClient.get(new URL(server.getEndpoint()), request)) {
 
@@ -65,7 +66,7 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
   @Test
   public void testSecureConnectionOnInsecureHttpsServer()
       throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
-    Connection secureHttpClient = new Connection(false /*secure*/, false, logger);
+    FailoverHttpClient secureHttpClient = new FailoverHttpClient(false /*secure*/, false, logger);
     try (TestWebServer server = new TestWebServer(true);
         Response ignored = secureHttpClient.get(new URL(server.getEndpoint()), request)) {
       Assert.fail("Should fail if cannot verify peer");
@@ -78,7 +79,8 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
   @Test
   public void testInsecureConnection_insecureHttpsFailover()
       throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
-    Connection insecureHttpClient = new Connection(true /*insecure*/, false, logger);
+    FailoverHttpClient insecureHttpClient =
+        new FailoverHttpClient(true /*insecure*/, false, logger);
     try (TestWebServer server = new TestWebServer(true, 2);
         Response response = insecureHttpClient.get(new URL(server.getEndpoint()), request)) {
 
@@ -97,7 +99,8 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
   @Test
   public void testInsecureConnection_plainHttpFailover()
       throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
-    Connection insecureHttpClient = new Connection(true /*insecure*/, false, logger);
+    FailoverHttpClient insecureHttpClient =
+        new FailoverHttpClient(true /*insecure*/, false, logger);
     try (TestWebServer server = new TestWebServer(false, 3)) {
       String httpsUrl = server.getEndpoint().replace("http://", "https://");
       try (Response response = insecureHttpClient.get(new URL(httpsUrl), request)) {
@@ -128,7 +131,7 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
             + "Content-Length: 0\n\n";
     String targetServerResponse = "HTTP/1.1 200 OK\nContent-Length:12\n\nHello World!";
 
-    Connection httpClient = new Connection(true /*insecure*/, false, logger);
+    FailoverHttpClient httpClient = new FailoverHttpClient(true /*insecure*/, false, logger);
     try (TestWebServer server =
         new TestWebServer(false, Arrays.asList(proxyResponse, targetServerResponse), 1)) {
       System.setProperty("http.proxyHost", "localhost");
@@ -149,8 +152,25 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
   }
 
   @Test
-  public void testVerbatimRedirectionUrls()
+  public void testClosingResourcesMultipleTimes_noErrors()
       throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
+    FailoverHttpClient httpClient = new FailoverHttpClient(true /*insecure*/, false, logger);
+    try (TestWebServer server = new TestWebServer(false, 2);
+        Response ignored1 = httpClient.get(new URL(server.getEndpoint()), request);
+        Response ignored2 = httpClient.get(new URL(server.getEndpoint()), request)) {
+      ignored1.close();
+      ignored2.close();
+    } finally {
+      httpClient.shutDown();
+      httpClient.shutDown(); // test should complete with no error
+    }
+  }
+
+  @Test
+  public void testRedirectionUrls()
+      throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
+    // Sample query strings from
+    // https://github.com/GoogleContainerTools/jib/issues/1986#issuecomment-547610104
     String url1 = "?id=301&_auth_=exp=1572285389~hmac=f0a387f0";
     String url2 = "?id=302&Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614";
     String url3 = "?id=303&_auth_=exp=1572285389~hmac=f0a387f0";
@@ -166,24 +186,24 @@ public class WithServerConnectionTest { // TODO: rename to WithServerTlsFailover
     List<String> responses =
         Arrays.asList(redirect301, redirect302, redirect303, redirect307, ok200);
 
-    Connection httpClient = new Connection(true /*insecure*/, false, logger);
+    FailoverHttpClient httpClient = new FailoverHttpClient(true /*insecure*/, false, logger);
     try (TestWebServer server = new TestWebServer(false, responses, 1)) {
       httpClient.get(new URL(server.getEndpoint()), request);
 
       Assert.assertThat(
           server.getInputRead(),
-          CoreMatchers.containsString("GET /?id=301&_auth_=exp=1572285389~hmac=f0a387f0 "));
+          CoreMatchers.containsString("GET /?id=301&_auth_=exp%3D1572285389~hmac%3Df0a387f0 "));
       Assert.assertThat(
           server.getInputRead(),
           CoreMatchers.containsString(
-              "GET /?id=302&Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614 "));
+              "GET /?id=302&Signature=2wYOD0a%2BDAkK/9lQJUOuIpYti8o%3D&Expires=1569997614 "));
       Assert.assertThat(
           server.getInputRead(),
-          CoreMatchers.containsString("GET /?id=303&_auth_=exp=1572285389~hmac=f0a387f0 "));
+          CoreMatchers.containsString("GET /?id=303&_auth_=exp%3D1572285389~hmac%3Df0a387f0 "));
       Assert.assertThat(
           server.getInputRead(),
           CoreMatchers.containsString(
-              "GET /?id=307&Signature=2wYOD0a%2BDAkK%2F9lQJUOuIpYti8o%3D&Expires=1569997614 "));
+              "GET /?id=307&Signature=2wYOD0a%2BDAkK/9lQJUOuIpYti8o%3D&Expires=1569997614 "));
     }
   }
 }
