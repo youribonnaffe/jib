@@ -409,7 +409,7 @@ public class MavenProjectProperties implements ProjectProperties {
       }
       Optional<String> release = getChildValue(pluginConfiguration, "release");
       if (release.isPresent()) {
-        return getVersionFromString(target.get());
+        return getVersionFromString(release.get());
       }
     }
     return 6; // maven-compiler-plugin default is 1.6
