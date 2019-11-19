@@ -430,40 +430,42 @@ public class MavenProjectProperties implements ProjectProperties {
    */
   @VisibleForTesting
   Path getJarArtifact() {
-    boolean springBootFatJar = jarRepackagedBySpringBoot();
-    if (springBootFatJar) {
-      consoleLogger.log(
-          Level.LIFECYCLE,
-          "Spring Boot repackaging (creating a fat JAR) detected; using the original JAR");
-    }
-
     String classifier = null;
-    String outputDirectory = null;
+    Path buildDirectory = Paths.get(project.getBuild().getDirectory());
+    Path outputDirectory = buildDirectory;
+
+    // Read <classifier> and <outputDirectory> from maven-jar-plugin.
     Plugin jarPlugin = project.getPlugin("org.apache.maven.plugins:maven-jar-plugin");
     if (jarPlugin != null) {
       for (PluginExecution execution : jarPlugin.getExecutions()) {
         if ("default-jar".equals(execution.getId())) {
           Xpp3Dom configuration = (Xpp3Dom) execution.getConfiguration();
           classifier = getChildValue(configuration, "classifier").orElse(null);
-          outputDirectory = getChildValue(configuration, "outputDirectory").orElse(null);
+          Optional<String> directoryString = getChildValue(configuration, "outputDirectory");
+
+          if (directoryString.isPresent()) {
+            outputDirectory = Paths.get(directoryString.get());
+            if (!outputDirectory.isAbsolute()) {
+              outputDirectory = project.getBasedir().toPath().resolve(outputDirectory);
+            }
+          }
         }
       }
     }
 
     String suffix = ".jar";
-    if (springBootFatJar) {
-      if (outputDirectory == null || outputDirectory.equals(project.getBuild().getDirectory())) {
-        suffix = ".jar.original";
+    if (jarRepackagedBySpringBoot()) {
+      consoleLogger.log(
+          Level.LIFECYCLE, "Spring Boot repackaging (a fat JAR) detected; using the original JAR");
+      if (outputDirectory.equals(buildDirectory)) { // Spring renames original only when needed
+        suffix += ".original";
       }
     }
 
     String jarName =
         project.getBuild().getFinalName() + (classifier == null ? "" : '-' + classifier) + suffix;
-    // TODO: use maven-jar-plugin's <outputDirectory>, if defined, instead of project.getBuild().
-    // However, Spring Boot adds ".original" suffix only when needed to avoid a conflict, so
-    // if <outputDirectory> is used and the original JAR is created in a different directory,
-    // we should not add the ".original" suffix.
-    return Paths.get(outputDirectory, jarName);
+    consoleLogger.log(Level.LIFECYCLE, "Using JAR: " + outputDirectory.resolve(jarName));
+    return outputDirectory.resolve(jarName);
   }
 
   private boolean jarRepackagedBySpringBoot() {
