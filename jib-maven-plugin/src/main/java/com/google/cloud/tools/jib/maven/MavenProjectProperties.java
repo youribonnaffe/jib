@@ -458,9 +458,7 @@ public class MavenProjectProperties implements ProjectProperties {
     }
 
     String jarName =
-        project.getBuild().getFinalName()
-            + (classifier == null ? "" : '-' + classifier)
-            + suffix;
+        project.getBuild().getFinalName() + (classifier == null ? "" : '-' + classifier) + suffix;
     // TODO: use maven-jar-plugin's <outputDirectory>, if defined, instead of project.getBuild().
     // However, Spring Boot adds ".original" suffix only when needed to avoid a conflict, so
     // if <outputDirectory> is used and the original JAR is created in a different directory,

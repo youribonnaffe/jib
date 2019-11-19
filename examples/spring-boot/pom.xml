@@ -27,9 +27,58 @@
     <build>
         <plugins>
             <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-jar-plugin</artifactId>
+              <configuration>
+                  <classifier>task</classifier>
+              </configuration>
+<!--
+                  <outputDirectory>target2</outputDirectory>
+              <executions>
+                <execution>
+                  <id>default-jar</id>
+                  <configuration>
+                    <classifier>task</classifier>
+                  </configuration>
+                </execution>
+              </executions>
+-->
+            </plugin>
+
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>2.1.6.RELEASE</version>
+                <executions>
+                  <execution>
+                    <id>repackage</id>
+                    <configuration>
+                      <attach>false</attach>
+                      <classifier>task</classifier>
+<!--
+                      <skip>true</skip>
+-->
+                    </configuration>
+                  </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>com.google.cloud.tools</groupId>
                 <artifactId>jib-maven-plugin</artifactId>
-                <version>1.8.0</version>
+                <version>1.8.1-SNAPSHOT</version>
+                <configuration>
+                  <from><image>openjdk:8-jre-slim</image></from>
+                  <to><image>spring-boot</image></to>
+                  <containerizingMode>packaged</containerizingMode>
+<extraDirectories>
+    <permissions>
+        <permission>
+            <file>/app/docker-entry-point.sh</file>
+            <mode>705</mode>
+       </permission>
+    </permissions>
+</extraDirectories>
+                </configuration>
             </plugin>
         </plugins>
     </build>
