@@ -176,7 +176,7 @@ public class MavenProjectProperties implements ProjectProperties {
         return Optional.empty();
       }
     }
-    return Optional.of(node.getValue());
+    return Optional.ofNullable(node.getValue());
   }
 
   private final MavenProject project;
@@ -476,7 +476,8 @@ public class MavenProjectProperties implements ProjectProperties {
       for (PluginExecution execution : springBootPlugin.getExecutions()) {
         if (execution.getGoals().contains("repackage")) {
           Optional<String> skip = getChildValue((Xpp3Dom) execution.getConfiguration(), "skip");
-          return !"true".equals(skip.orElse("false")); // repackaging unless skipped
+          boolean skipped = "true".equals(skip.orElse("false"));
+          return !skipped;
         }
       }
     }
