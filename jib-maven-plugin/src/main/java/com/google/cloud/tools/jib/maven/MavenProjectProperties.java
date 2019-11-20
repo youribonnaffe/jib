@@ -468,7 +468,8 @@ public class MavenProjectProperties implements ProjectProperties {
     return outputDirectory.resolve(jarName);
   }
 
-  private boolean jarRepackagedBySpringBoot() {
+  @VisibleForTesting
+  boolean jarRepackagedBySpringBoot() {
     Plugin springBootPlugin =
         project.getPlugin("org.springframework.boot:spring-boot-maven-plugin");
     if (springBootPlugin != null) {

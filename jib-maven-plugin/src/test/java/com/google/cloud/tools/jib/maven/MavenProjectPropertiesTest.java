@@ -47,6 +47,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -204,12 +205,12 @@ public class MavenProjectPropertiesTest {
   @Mock private MavenSession mockMavenSession;
   @Mock private MavenExecutionRequest mockMavenRequest;
   @Mock private Properties mockMavenProperties;
-  @Mock private Plugin mockJarPlugin;
+  @Mock private Plugin mockPlugin;
   @Mock private Plugin mockCompilerPlugin;
   @Mock private Log mockLog;
   @Mock private TempDirectoryProvider mockTempDirectoryProvider;
 
-  private Xpp3Dom jarPluginConfiguration;
+  private Xpp3Dom pluginConfiguration;
   private Xpp3Dom archive;
   private Xpp3Dom manifest;
   private Xpp3Dom jarPluginMainClass;
@@ -226,7 +227,7 @@ public class MavenProjectPropertiesTest {
     mavenProjectProperties =
         new MavenProjectProperties(
             mockMavenProject, mockMavenSession, mockLog, mockTempDirectoryProvider);
-    jarPluginConfiguration = new Xpp3Dom("");
+    pluginConfiguration = new Xpp3Dom("");
     archive = new Xpp3Dom("archive");
     manifest = new Xpp3Dom("manifest");
     jarPluginMainClass = new Xpp3Dom("mainClass");
@@ -260,9 +261,9 @@ public class MavenProjectPropertiesTest {
   @Test
   public void testGetMainClassFromJar_success() {
     Mockito.when(mockMavenProject.getPlugin("org.apache.maven.plugins:maven-jar-plugin"))
-        .thenReturn(mockJarPlugin);
-    Mockito.when(mockJarPlugin.getConfiguration()).thenReturn(jarPluginConfiguration);
-    jarPluginConfiguration.addChild(archive);
+        .thenReturn(mockPlugin);
+    Mockito.when(mockPlugin.getConfiguration()).thenReturn(pluginConfiguration);
+    pluginConfiguration.addChild(archive);
     archive.addChild(manifest);
     manifest.addChild(jarPluginMainClass);
     jarPluginMainClass.setValue("some.main.class");
@@ -273,9 +274,9 @@ public class MavenProjectPropertiesTest {
   @Test
   public void testGetMainClassFromJar_missingMainClass() {
     Mockito.when(mockMavenProject.getPlugin("org.apache.maven.plugins:maven-jar-plugin"))
-        .thenReturn(mockJarPlugin);
-    Mockito.when(mockJarPlugin.getConfiguration()).thenReturn(jarPluginConfiguration);
-    jarPluginConfiguration.addChild(archive);
+        .thenReturn(mockPlugin);
+    Mockito.when(mockPlugin.getConfiguration()).thenReturn(pluginConfiguration);
+    pluginConfiguration.addChild(archive);
     archive.addChild(manifest);
 
     Assert.assertNull(mavenProjectProperties.getMainClassFromJar());
@@ -284,9 +285,9 @@ public class MavenProjectPropertiesTest {
   @Test
   public void testGetMainClassFromJar_missingManifest() {
     Mockito.when(mockMavenProject.getPlugin("org.apache.maven.plugins:maven-jar-plugin"))
-        .thenReturn(mockJarPlugin);
-    Mockito.when(mockJarPlugin.getConfiguration()).thenReturn(jarPluginConfiguration);
-    jarPluginConfiguration.addChild(archive);
+        .thenReturn(mockPlugin);
+    Mockito.when(mockPlugin.getConfiguration()).thenReturn(pluginConfiguration);
+    pluginConfiguration.addChild(archive);
 
     Assert.assertNull(mavenProjectProperties.getMainClassFromJar());
   }
@@ -294,8 +295,8 @@ public class MavenProjectPropertiesTest {
   @Test
   public void testGetMainClassFromJar_missingArchive() {
     Mockito.when(mockMavenProject.getPlugin("org.apache.maven.plugins:maven-jar-plugin"))
-        .thenReturn(mockJarPlugin);
-    Mockito.when(mockJarPlugin.getConfiguration()).thenReturn(jarPluginConfiguration);
+        .thenReturn(mockPlugin);
+    Mockito.when(mockPlugin.getConfiguration()).thenReturn(pluginConfiguration);
 
     Assert.assertNull(mavenProjectProperties.getMainClassFromJar());
   }
@@ -303,7 +304,7 @@ public class MavenProjectPropertiesTest {
   @Test
   public void testGetMainClassFromJar_missingConfiguration() {
     Mockito.when(mockMavenProject.getPlugin("org.apache.maven.plugins:maven-jar-plugin"))
-        .thenReturn(mockJarPlugin);
+        .thenReturn(mockPlugin);
 
     Assert.assertNull(mavenProjectProperties.getMainClassFromJar());
   }
@@ -677,6 +678,71 @@ public class MavenProjectPropertiesTest {
             newArtifact("com.test", "projectA", "1.0").getFile().toPath(),
             newArtifact("com.test", "projectB", "1.0-SNAPSHOT").getFile().toPath(),
             newArtifact("com.test", "projectC", "3.0").getFile().toPath()));
+  }
+
+  @Test
+  public void testGetChildValue_null() {
+    Assert.assertFalse(MavenProjectProperties.getChildValue(null).isPresent());
+    Assert.assertFalse(MavenProjectProperties.getChildValue(null, "foo", "bar").isPresent());
+  }
+
+  @Test
+  public void testGetChildValue_noPathGiven() {
+    Xpp3Dom root = new Xpp3Dom("root");
+    root.setValue("root");
+    Assert.assertEquals(Optional.of("root"), MavenProjectProperties.getChildValue(root));
+  }
+
+  @Test
+  public void testGetChildValue_noChild() {
+    Xpp3Dom root = new Xpp3Dom("root");
+    root.setValue("root");
+    Assert.assertFalse(MavenProjectProperties.getChildValue(root, "foo").isPresent());
+    Assert.assertFalse(MavenProjectProperties.getChildValue(root, "foo", "bar").isPresent());
+  }
+
+  @Test
+  public void testGetChildValue_childPathMatched() {
+    Xpp3Dom root = new Xpp3Dom("root");
+    Xpp3Dom foo = new Xpp3Dom("foo");
+    Xpp3Dom bar = new Xpp3Dom("bar");
+    root.setValue("root");
+    foo.setValue("foo");
+    bar.setValue("bar");
+    root.addChild(foo);
+    foo.addChild(bar);
+    Assert.assertEquals(Optional.of("foo"), MavenProjectProperties.getChildValue(root, "foo"));
+    Assert.assertEquals(
+        Optional.of("bar"), MavenProjectProperties.getChildValue(root, "foo", "bar"));
+    Assert.assertEquals(Optional.of("bar"), MavenProjectProperties.getChildValue(foo, "bar"));
+  }
+
+  @Test
+  public void testGetChildValue_notFullyMatched() {
+    Xpp3Dom root = new Xpp3Dom("root");
+    Xpp3Dom foo = new Xpp3Dom("foo");
+    Xpp3Dom bar = new Xpp3Dom("bar");
+    root.setValue("root");
+    foo.setValue("foo");
+    bar.setValue("bar");
+    root.addChild(foo);
+    foo.addChild(bar);
+    Assert.assertFalse(MavenProjectProperties.getChildValue(root, "baz").isPresent());
+    Assert.assertFalse(MavenProjectProperties.getChildValue(root, "foo", "baz").isPresent());
+  }
+
+  @Test
+  public void testJarRepackagedBySpringBoot_pluginNotApplied() {
+    Mockito.when(mockMavenProject.getPlugin("org.springframework.boot:spring-boot-maven-plugin"))
+        .thenReturn(mockPlugin);
+    Mockito.when(mockPlugin.getConfiguration()).thenReturn(pluginConfiguration);
+  }
+
+  @Test
+  public void testJarRepackagedBySpringBoot() {
+    Mockito.when(mockMavenProject.getPlugin("org.springframework.boot:spring-boot-maven-plugin"))
+        .thenReturn(mockPlugin);
+    Mockito.when(mockPlugin.getConfiguration()).thenReturn(pluginConfiguration);
   }
 
   private BuildContext setupBuildContext(String appRoot, ContainerizingMode containerizingMode)
