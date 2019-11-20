@@ -8,8 +8,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Removed deprecated `<extraDirectory>` configuration in favor of `<extraDirectories>`. ([#1691](https://github.com/GoogleContainerTools/jib/issues/1691))
+- Removed deprecated `<container><useCurrentTimestamp>` configuration in favor of `<container><creationTime>` with `USE_CURRENT_TIMESTAMP`. ([#1897](https://github.com/GoogleContainerTools/jib/issues/1897))
 
 ### Fixed
+
+- Fixed `<extraDirectories><permissions>` being ignored if `<paths>` are not explicitly defined. ([#2106](https://github.com/GoogleContainerTools/jib/issues/2160))
 
 ## 1.8.0
 
